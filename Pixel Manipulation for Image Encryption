@@ -1,1 +1,145 @@
+from PIL import Image
+import numpy as np
+import secrets
+import hashlib
 
+def xor_encrypt_image(input_path, output_path, key=None):
+    """Secure XOR-based image encryption with proper key derivation"""
+    img = Image.open(input_path)
+    arr = np.array(img)
+    
+    # Generate random key if not provided
+    if key is None:
+        key = secrets.token_bytes(32)  # 256-bit key
+    
+    # Generate deterministic key stream from the key
+    key_hash = hashlib.sha256(key).digest()
+    seed = int.from_bytes(key_hash[:16], 'big')  # Use first 128 bits as seed
+    
+    # Create seeded random generator
+    rng = np.random.default_rng(seed)
+    
+    # Flatten the image array
+    flat = arr.flatten()
+    
+    # Generate key stream of exactly the right length
+    key_stream = rng.integers(0, 256, size=len(flat), dtype=np.uint8)
+    
+    # XOR operation
+    encrypted = flat ^ key_stream
+    
+    # Reshape back to original image shape
+    encrypted_arr = encrypted.reshape(arr.shape)
+    
+    # Save encrypted image
+    Image.fromarray(encrypted_arr).save(output_path)
+    print(f"Encrypted image saved as: {output_path}")
+    
+    # Return the key for decryption
+    return key
+
+def xor_decrypt_image(input_path, output_path, key):
+    """Decrypt XOR-encrypted image"""
+    img = Image.open(input_path)
+    arr = np.array(img)
+    
+    # Generate the same key stream from the key
+    key_hash = hashlib.sha256(key).digest()
+    seed = int.from_bytes(key_hash[:16], 'big')
+    
+    rng = np.random.default_rng(seed)
+    flat = arr.flatten()
+    
+    # Generate the same key stream
+    key_stream = rng.integers(0, 256, size=len(flat), dtype=np.uint8)
+    
+    # XOR again to decrypt (same operation as encryption)
+    decrypted = flat ^ key_stream
+    
+    # Reshape back to original image shape
+    decrypted_arr = decrypted.reshape(arr.shape)
+    
+    Image.fromarray(decrypted_arr).save(output_path)
+    print(f"Decrypted image saved as: {output_path}")
+
+# Alternative: Even simpler XOR with keystream from key expansion
+def simple_xor_encrypt_image(input_path, output_path, key=None):
+    """Simpler XOR encryption using key expansion"""
+    img = Image.open(input_path)
+    arr = np.array(img)
+    
+    if key is None:
+        key = secrets.token_bytes(32)
+    
+    # Expand key to match image data length
+    flat = arr.flatten()
+    key_bytes = key * (len(flat) // len(key) + 1)
+    key_bytes = key_bytes[:len(flat)]
+    
+    # Convert to numpy arrays for XOR
+    flat_bytes = flat.tobytes()
+    encrypted_bytes = bytes([a ^ b for a, b in zip(flat_bytes, key_bytes)])
+    
+    # Convert back to numpy array
+    encrypted = np.frombuffer(encrypted_bytes, dtype=flat.dtype).reshape(arr.shape)
+    
+    Image.fromarray(encrypted).save(output_path)
+    print(f"Encrypted image saved as: {output_path}")
+    return key
+
+def simple_xor_decrypt_image(input_path, output_path, key):
+    """Decrypt simple XOR encryption"""
+    img = Image.open(input_path)
+    arr = np.array(img)
+    
+    flat = arr.flatten()
+    key_bytes = key * (len(flat) // len(key) + 1)
+    key_bytes = key_bytes[:len(flat)]
+    
+    flat_bytes = flat.tobytes()
+    decrypted_bytes = bytes([a ^ b for a, b in zip(flat_bytes, key_bytes)])
+    
+    decrypted = np.frombuffer(decrypted_bytes, dtype=flat.dtype).reshape(arr.shape)
+    
+    Image.fromarray(decrypted).save(output_path)
+    print(f"Decrypted image saved as: {output_path}")
+
+# Example usage with error handling
+if __name__ == "__main__":
+    try:
+        # Method 1: Using seeded random generator
+        print("Method 1: Seeded random generator approach")
+        key1 = xor_encrypt_image(
+            "pros-and-cons-scaled-2560x1280.jpeg",
+            "encrypted_method1.png"
+        )
+        
+        xor_decrypt_image(
+            "encrypted_method1.png",
+            "decrypted_method1.png",
+            key1
+        )
+        
+        print(f"\nKey used: {key1.hex()}")
+        
+        # Method 2: Simple key expansion (easier to understand)
+        print("\n" + "="*50)
+        print("Method 2: Simple key expansion approach")
+        key2 = simple_xor_encrypt_image(
+            "pros-and-cons-scaled-2560x1280.jpeg",
+            "encrypted_method2.png"
+        )
+        
+        simple_xor_decrypt_image(
+            "encrypted_method2.png",
+            "decrypted_method2.png",
+            key2
+        )
+        
+        print(f"\nKey used: {key2.hex()}")
+        
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        print("Please make sure the input image exists.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
